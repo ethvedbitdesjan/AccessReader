@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Web Access Helper",
+  "version": "1.0",
+  "description": "Helps visually impaired users navigate web pages using AI assistance",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "commands",
+    "scripting",
+    "tts"
+  ],
+  "action": {
+    "default_popup": "settings.html"
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "commands": {
+    "activate-assistant": {
+      "suggested_key": {
+        "default": "Alt+X"
+      },
+      "description": "Activate web navigation assistant"
+    }
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "css": ["styles.css"],
+    "run_at": "document_idle",
+    "all_frames": false,
+    "match_about_blank": false,
+    "world": "ISOLATED"
+  }],
+  "web_accessible_resources": [{
+    "resources": ["styles.css"],
+    "matches": ["<all_urls>"]
+  }]
+}
