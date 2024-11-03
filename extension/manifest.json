@@ -8,7 +8,9 @@
     "storage",
     "commands",
     "scripting",
-    "tts"
+    "tts",
+    "desktopCapture",
+    "tabCapture"
   ],
   "action": {
     "default_popup": "settings.html"

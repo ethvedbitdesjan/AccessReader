@@ -37,7 +37,7 @@ async function initializeSpeech(): Promise<void> {
   if (speechInitialized) return;
   
   // Create and speak an empty utterance to initialize speech synthesis
-  const init = "Hello, How are you?";
+  const init = "";
   await speak(init);
   speechInitialized = true;
   console.log("Speech synthesis initialized");
@@ -46,15 +46,19 @@ async function initializeSpeech(): Promise<void> {
 // Selection keyboard handler
 document.addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.altKey && /^[1-9]$/.test(event.key)) {
+    console.error("Selection key pressed:", event.key);
     const optionIndex = parseInt(event.key) - 1;
+    provideFeedback(optionIndex);
     if (currentElements[optionIndex]) {
-      chrome.runtime.sendMessage({
-        type: "requestElementSelection",
-        data: {
-          optionIndex,
-          coordinates: currentElements[optionIndex].boundingBox
+      const coordinates= currentElements[optionIndex].boundingBox;
+      //find if element is button and has href
+      console.log("Element tag: ", currentElements[optionIndex]);
+        const redirect_link = currentElements[optionIndex].href;
+        if (redirect_link) {
+          //redirect to the link
+          console.error("Sending selection feedback to content script: ", redirect_link);
+          window.location.href = redirect_link;
         }
-      });
     }
   }
 });
@@ -94,14 +98,17 @@ async function startNavigationProcess(): Promise<void> {
       // Initialize speech synthesis first
       await initializeSpeech();
       
-      const screenshot = await captureVisibleTab();
+      const screenshot = await captureEntireScreen();
       const intent = await getUserIntent();
-      
+      const width = window.innerWidth;
+      const height = window.innerHeight;
       chrome.runtime.sendMessage({
           type: "processNavigation",
           data: {
               screenshot,
-              intent
+              intent,
+              width,
+              height
           } as NavigationData
       });
   } catch (error) {
@@ -109,12 +116,121 @@ async function startNavigationProcess(): Promise<void> {
   }
 }
 
-async function captureVisibleTab(): Promise<string> {
-  return "base64_screenshot_data"; // Placeholder
+export async function captureEntireScreen(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const { scrollHeight, clientHeight } = document.documentElement;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    let capturedHeight = 0;
+    let capturedImages: string[] = [];
+    let originalScrollPosition = window.scrollY;
+
+    const captureAndScroll = () => {
+      const scrollAmount = clientHeight * devicePixelRatio;
+      
+      chrome.runtime.sendMessage(
+        { action: "captureVisibleTab", pixelRatio: devicePixelRatio },
+        async (dataUrl) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+            return;
+          }
+
+          capturedImages.push(dataUrl);
+          capturedHeight += scrollAmount;
+          
+          if (capturedHeight < scrollHeight * devicePixelRatio) {
+            // Scroll to the next part of the page
+            window.scrollTo(0, capturedHeight / devicePixelRatio);
+            setTimeout(captureAndScroll, 2000); // 2 second delay between captures
+          } else {
+            try {
+              // Stitch images together
+              const stitchedImage = await stitchImages(capturedImages);
+              // Restore original scroll position
+              window.scrollTo(0, originalScrollPosition);
+              resolve(stitchedImage);
+            } catch (error) {
+              console.error("Error stitching images:", error);
+              reject(error);
+            }
+          }
+        }
+      );
+    };
+
+    try {
+      // Start the capture process
+      captureAndScroll();
+    } catch (error) {
+      console.error("Error in captureEntireScreen:", error);
+      // Restore original scroll position on error
+      window.scrollTo(0, originalScrollPosition);
+      reject(error);
+    }
+  });
+}
+
+// Add this new function to content.ts
+async function stitchImages(images: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (images.length === 0) {
+      reject(new Error("No images to stitch"));
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    
+    if (!context) {
+      reject(new Error("Could not get canvas context"));
+      return;
+    }
+
+    // Load the first image to get dimensions
+    const firstImage = new Image();
+    firstImage.onload = () => {
+      // Set canvas dimensions
+      canvas.width = firstImage.width;
+      canvas.height = firstImage.height * images.length;
+
+      let imagesLoaded = 0;
+
+      // Function to draw image on canvas
+      const drawImageOnCanvas = (image: HTMLImageElement, index: number) => {
+        context.drawImage(image, 0, index * firstImage.height);
+        imagesLoaded++;
+
+        // Check if all images are loaded and drawn
+        if (imagesLoaded === images.length) {
+          // Convert the final stitched image to base64
+          const stitchedImageBase64 = canvas.toDataURL("image/png")
+            .replace(/^data:image\/png;base64,/, '');
+          resolve(stitchedImageBase64);
+        }
+      };
+
+      // Load and draw each image
+      images.forEach((dataUrl, index) => {
+        const image = new Image();
+        image.onload = () => drawImageOnCanvas(image, index);
+        image.onerror = () => {
+          console.error(`Error loading image at index ${index}`);
+          reject(new Error(`Failed to load image at index ${index}`));
+        };
+        image.src = dataUrl;
+      });
+    };
+
+    firstImage.onerror = () => {
+      reject(new Error("Failed to load first image"));
+    };
+
+    firstImage.src = images[0];
+  });
 }
 
 async function getUserIntent(): Promise<string> {
-  return "navigate"; // Placeholder
+  return "news"; // Placeholder
 }
 
 function presentResults(data: NavigationResults): void {
@@ -236,12 +352,14 @@ function findElementsAtPoints(points: ClickPoint[]): ElementInfo[] {
         toJSON() { return this; }
       };
       
+      const href_link = relevantElement.getAttribute('href');
       elements.push({
         element: relevantElement,
         boundingBox: absoluteBoundingBox,
         text: extractElementText(relevantElement),
         role: relevantElement.getAttribute('role') || undefined,
-        tag: relevantElement.tagName.toLowerCase()
+        tag: relevantElement.tagName.toLowerCase(),
+        href: href_link? href_link : undefined
       });
     }
   });

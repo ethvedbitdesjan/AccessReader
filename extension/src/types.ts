@@ -25,6 +25,8 @@ export interface UserPreferences {
 export interface NavigationData {
   screenshot: string;
   intent: string;
+  width: number;
+  height: number;
 }
 
 export interface NavigationResults {
@@ -81,6 +83,7 @@ export interface ElementInfo {
   text: string;
   role?: string;
   tag: string;
+  href?: string;
 }
 
 export interface SelectElementMessage {

@@ -13,16 +13,16 @@ import { ApiStorage } from './api_storage';
 
 const SPECIAL_INTENTS: Record<string, SpecialIntent> = {
   "navigate": {
-    prompt: "Find navigation elements like menus and links",
-    numPoints: 5
+    prompt: "Find elements relevant to developer community",
+    numPoints: 2
   },
   "news": {
-    prompt: "Find news articles and headlines based on user interests",
-    numPoints: 3
+    prompt: "Find elements relevant to simple code examples for beginners",
+    numPoints: 2
   },
   "form": {
     prompt: "Find form elements like input fields and buttons",
-    numPoints: 4
+    numPoints: 2
   }
 };
 
@@ -53,6 +53,20 @@ chrome.runtime.onMessage.addListener((
   }
   else if (request.type === "requestElementSelection" && sender.tab?.id) {
     handleElementSelection(request.data, sender.tab.id);
+  }
+  return true;
+});
+
+chrome.runtime.onMessage.addListener((
+  message: { action: string; pixelRatio: number },
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response?: any) => void
+) => {
+  if (message.action === "captureVisibleTab") {
+    chrome.tabs.captureVisibleTab({ format: "png", quality: 100 }, (dataUrl) => {
+      sendResponse(dataUrl);
+    });
+    return true;
   }
   return true;
 });
@@ -118,7 +132,7 @@ async function handleElementSelection(
     const centerY = data.coordinates.top + (data.coordinates.height / 2);
     
     await moveMouseToCoordinates(centerX, centerY);
-    
+    console.error("Sending selection feedback to content script");
     await chrome.tabs.sendMessage(tabId, {
       action: "selectionFeedback",
       data: {
@@ -133,6 +147,20 @@ async function handleElementSelection(
 async function moveMouseToCoordinates(x: number, y: number): Promise<void> {
   console.error(`Moving mouse to coordinates: x=${x}, y=${y}`);
   // Placeholder for actual mouse movement implementation
+  try {
+      const moveEvent = new MouseEvent('mousemove', {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y
+      });
+      
+      document.dispatchEvent(moveEvent);
+  } catch (error) {
+    console.error('Error moving mouse:', error);
+    throw error;
+  }
   return new Promise((resolve) => {
     setTimeout(() => {
       console.log("Mouse movement complete");
@@ -145,7 +173,7 @@ async function handleNavigation(data: NavigationData, tabId?: number): Promise<v
   if (!tabId) return;
   
   console.log("Processing navigation data:", data);
-    const { screenshot, intent } = data;
+    const { screenshot, intent, width, height } = data;
     const userPrefs = await getUserPreferences();
     const specialConfig = SPECIAL_INTENTS[intent.toLowerCase()];
     
@@ -160,17 +188,18 @@ async function handleNavigation(data: NavigationData, tabId?: number): Promise<v
       });
       return;
     }
-
+    
+    const provider = new AnthropicProvider(apiKey, width, height);
+    const generator = new ContentGenerator(provider);
     const clickPoints = await getClickPoints(
-      screenshot, 
+      screenshot,
+      generator,
       specialConfig ? specialConfig.prompt : intent,
       specialConfig ? specialConfig.numPoints : 3,
       userPrefs
     );
     
     const elements = await extractElements(clickPoints);
-    const provider = new AnthropicProvider(apiKey);
-    const generator = new ContentGenerator(provider);
     const content = await generateReadableContent(elements, generator);
     
     await chrome.tabs.sendMessage(tabId, {
@@ -185,16 +214,14 @@ async function handleNavigation(data: NavigationData, tabId?: number): Promise<v
 }
 
 async function getClickPoints(
-  screenshot: string, 
+  screenshot: string,
+  generator: ContentGenerator,
   intent: string, 
   numPoints: number, 
   userPrefs: UserPreferences
 ): Promise<ClickPoint[]> {
-  // Placeholder - implement actual vision model integration
-  return [
-    { x: 800, y: 183 },
-    { x: 200, y: 200 }
-  ];
+  // return [{ x: 100, y: 200 }]; // Placeholder for actual implementation
+  return await generator.getCoordinatesFromScreenshot(screenshot, intent, numPoints);
 }
 
 async function generateReadableContent(

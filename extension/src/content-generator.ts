@@ -1,5 +1,5 @@
 import { LLMProvider } from './llm-providers';
-import { ElementInfo, ElementDescription } from './types';
+import { ElementInfo, ElementDescription, ClickPoint } from './types';
 
 export class ContentGenerator {
   private provider: LLMProvider;
@@ -19,5 +19,13 @@ export class ContentGenerator {
     );
 
     return descriptions;
+  }
+
+  async getCoordinatesFromScreenshot(
+    screenshot: string, 
+    intent: string,
+    numPoints: number = 3
+  ): Promise<ClickPoint[]> {
+    return await this.provider.getCoordinatesFromScreenshot(screenshot, intent, numPoints);
   }
 }
