@@ -14,3 +14,5 @@ npm run build
 ```
 
 Then add the dist folder as unpacked extensiont to chrome.
+
+**Note**: There are still a few minor changes needed to get it working and work is in progress.
